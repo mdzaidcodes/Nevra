@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speaker Interface</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        .gradient-hover:hover {
+            background: linear-gradient(180deg, #003cb3, #003399, #002b80, #002266);
+            color: white;
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen" style="background: linear-gradient(180deg, #003cb3, #003399, #002b80, #002266); color: #ffffff;">
+
+    <div class="bg-gray-800 bg-opacity-80 shadow-lg rounded-lg p-8 max-w-md w-full text-center text-white">
+        <h1 class="text-3xl font-bold mb-6">Speaker Interface</h1>
+        <div class="flex flex-col items-center space-y-4">
+            <button id="startBtn" class="bg-gray-700 rounded-lg py-2 px-6 text-lg font-semibold text-white transition duration-300 gradient-hover w-full">
+                Start Speaking
+            </button>
+            <button id="stopBtn" class="bg-gray-700 rounded-lg py-2 px-6 text-lg font-semibold text-white transition duration-300 gradient-hover w-full" disabled>
+                Stop Speaking
+            </button>
+        </div>
+        
+        <div id="transcript" class="bg-gray-900 bg-opacity-80 mt-6 p-4 border border-gray-600 rounded-lg h-64 overflow-y-auto text-left">
+            <p id="transcriptPlaceholder">Transcript will appear here...</p>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let mediaRecorder;
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const transcriptDiv = document.getElementById('transcript');
+        const transcriptPlaceholder = document.getElementById('transcriptPlaceholder');
+        let audioChunks = [];
+
+        startBtn.onclick = async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
+                };
+
+                mediaRecorder.onstop = () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    convertToWavAndSend(audioBlob);
+                    audioChunks = [];  // Clear the buffer for the next recording
+                };
+
+                mediaRecorder.start();
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+            } catch (error) {
+                console.error("Error starting audio capture:", error);
+            }
+        };
+    
+        stopBtn.onclick = () => {
+            if (mediaRecorder) {
+                mediaRecorder.stop();
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            }
+        };
+
+        function convertToWavAndSend(audioBlob) {
+            const reader = new FileReader();
+            reader.readAsArrayBuffer(audioBlob);
+            reader.onloadend = () => {
+                socket.emit('speech_data', { audio: reader.result });
+            };
+        }
+
+        socket.on('load_transcript', (data) => {
+            transcriptDiv.innerHTML = '';
+            data.transcript.forEach(line => {
+                transcriptDiv.innerHTML += `<p>${line}</p>`;
+            });
+            transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
+        });
+
+        socket.on('new_speech', (data) => {
+            transcriptPlaceholder.style.display = 'none';
+            transcriptDiv.innerHTML += `<p>${data.text}</p>`;
+            transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
+        });
+    </script>
+</body>
+</html>
